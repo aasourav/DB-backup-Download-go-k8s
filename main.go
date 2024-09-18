@@ -5,51 +5,52 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	router := mux.NewRouter()
+	// Create a new Gin router
+	router := gin.Default()
 
-	// Define a GET route for downloading files
-
-	router.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("api is working well"))
+	// Define a GET route for testing
+	router.GET("/test", func(c *gin.Context) {
+		c.String(http.StatusOK, "API is working well")
 	})
 
-	router.HandleFunc("/download/{filename}", func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		filename := vars["filename"]
-		filePath := filepath.Join("/tmp", filename) // Construct the full file path
+	// Define a GET route for downloading files
+	router.GET("/download/:filename", func(c *gin.Context) {
+		filename := c.Param("filename")
 
-		fmt.Println("Attempting to serve file:", filePath) // Debug print
-
-		// Check if the file exists
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			fmt.Println("File not found:", filePath) // Debug print
-			http.Error(w, "file not found", http.StatusNotFound)
-			return
-		} else if err != nil {
-			fmt.Println("Error checking file:", err) // Debug print
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		// Sanitize filename to prevent directory traversal attacks
+		if strings.Contains(filename, "..") {
+			c.String(http.StatusBadRequest, "invalid filename")
 			return
 		}
 
-		// Serve the file
-		http.ServeFile(w, r, filePath)
-	}).Methods("GET")
+		// Define the file path (in /tmp directory)
+		filePath := filepath.Join("/tmp", filename)
 
-	// Print the current working directory
-	if cwd, err := os.Getwd(); err == nil {
-		fmt.Println("Current working directory:", cwd)
-	} else {
-		fmt.Println("Error getting working directory:", err)
-	}
+		fmt.Println("Attempting to serve file:", filePath)
 
-	// Listen and serve on 0.0.0.0:8030
-	fmt.Println("Server is running on port 8030")
-	if err := http.ListenAndServe(":8035", router); err != nil {
+		// Check if the file exists
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			c.String(http.StatusNotFound, "file not found")
+			return
+		} else if err != nil {
+			c.String(http.StatusInternalServerError, "internal server error")
+			return
+		}
+
+		// Set Content-Disposition to force download
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+		c.File(filePath)
+	})
+
+	// Run the Gin server (blocking call)
+	fmt.Println("Server is running on port 8035")
+	if err := router.Run(":8035"); err != nil {
 		fmt.Println("Failed to start server:", err)
 	}
 }
